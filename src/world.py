@@ -4,7 +4,7 @@ import numpy as np
 from dataclasses import dataclass
 from enum import Enum
 from typing import Tuple
-
+from collections import defaultdict
 
 class Action(Enum):
     IDLE = 0
@@ -43,24 +43,33 @@ class Actor:
 
 
 @dataclass
+class DamageItem:
+    ptype: PixelType
+    damage: int
+    self_destructed: bool
+
+
+
+@dataclass
 class World:
     field: np.ndarray
     is_player_alive: np.ndarray
     actors: np.ndarray
+    damage_log: defaultdict
     iteration: int = 0
-
-    def has_next_state(self) -> bool:
-        n_alive = 0
-        for p in self.is_player_alive:
-            if p:
-                n_alive = n_alive + 1
-        return n_alive > 1
 
     def n_players(self) -> int:
         return len(self.is_player_alive)
 
+    def n_alive_players(self) -> int:
+        n_alive = 0
+        for p in self.is_player_alive:
+            if p:
+                n_alive = n_alive + 1
+        return n_alive
 
-def next_state(world: World) -> World:
+
+def next_state(world: World):
     actions = np.empty(world.n_players(), dtype=Action)
     for i in range(world.n_players()):
         if world.is_player_alive[i]:
@@ -68,9 +77,8 @@ def next_state(world: World) -> World:
         else:
             actions[i] = Action.IDLE
 
-    world.field = _resolve(_act(world, actions), world.is_player_alive)
+    world.field = _resolve(_act(world, actions), world.is_player_alive, world.damage_log)
     world.iteration = world.iteration + 1
-    return world
 
 
 # IMPLEMENTATION ---
@@ -106,7 +114,7 @@ def _fire(field, x, y, new_field, player_idx):
             bullet = Pixel(
                 ptype=PixelType.BULLET,
                 hp=PixelType.BULLET.init_hp(),
-                player_idx=-1,
+                player_idx=player_idx,
                 bullet_direction=action
             )
             _add_pixel(new_field, new_x, new_y, bullet)
@@ -121,9 +129,9 @@ def _act(world, actions):
                 continue
 
             pixel = world.field[x][y]
-            if pixel.player_idx != -1 and not world.is_player_alive[pixel.player_idx]:
+            if pixel.ptype != PixelType.BULLET and not world.is_player_alive[pixel.player_idx]:
                 continue
-            action = actions[pixel.player_idx] if pixel.player_idx != -1 else pixel.bullet_direction
+            action = actions[pixel.player_idx] if pixel.ptype != PixelType.BULLET else pixel.bullet_direction
             if action == Action.IDLE:
                 _add_pixel(new_field, x, y, pixel)
             elif action == Action.ATTACK:
@@ -142,18 +150,18 @@ def _act(world, actions):
     return new_field
 
 
-def _resolve(field, is_player_alive):
+def _resolve(field, is_player_alive, damage_log):
     (width, height) = field.shape
     for x in range(width):
         for y in range(height):
             if field[x][y] is None:
                 continue
-            field[x][y] = _resolve_pixels(field[x][y], is_player_alive)
+            field[x][y] = _resolve_pixels(field[x][y], is_player_alive, damage_log)
 
     return field
 
 
-def _resolve_pixels(pixels, is_player_alive) -> object:
+def _resolve_pixels(pixels, is_player_alive, damage_log) -> object:
     if len(pixels) == 1:
         return pixels[0]
     pixels = list(sorted(pixels, key=lambda p: p.hp, reverse=True))
@@ -161,6 +169,17 @@ def _resolve_pixels(pixels, is_player_alive) -> object:
     for i in range(1, len(pixels)):
         if pixels[i].ptype == PixelType.ENGINE:
             is_player_alive[pixels[i].player_idx] = False
+
+    for i in range(len(pixels)):
+        other = pixels[(i + 1) % len(pixels)]
+        damage_log[pixels[i].player_idx].append(
+            DamageItem(
+                ptype=other.ptype,
+                damage=min(pixels[i].hp, other.hp),
+                self_destructed=other.hp >= pixels[i].hp
+            )
+        )
+
     pixels[0].hp = pixels[0].hp - pixels[1].hp
     if pixels[0].hp != 0:
         return pixels[0]
@@ -206,14 +225,11 @@ def gen_world(width, height, players, actors) -> World:
     return World(
         field=field,
         is_player_alive=np.array([True]*len(players), dtype=bool),
-        actors=np.array(actors, dtype=Actor)
+        actors=np.array(actors, dtype=Actor),
+        damage_log=defaultdict(list)
     )
 
 
 class DummyActor(Actor):
-    def __init__(self):
-        self.i = 0
-
     def action(self, world, player_idx: int) -> Action:
-        self.i = self.i + 1
-        return Action(self.i % len(Action))
+        return Action(random.randint(0, len(Action) - 1))

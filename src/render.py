@@ -17,7 +17,7 @@ _KEY_TO_ACTION = {
     pygame.K_RIGHT: Action.RIGHT
 }
 
-
+# https://www.color-hex.com/color-palette/1872
 _PALLET = {
     "background": (238,238,238),
     "pixels": {
@@ -27,18 +27,21 @@ _PALLET = {
         PixelType.BULLET: (255,167,0),
         PixelType.EMPTY: (255,255,255),
     },
+    "debug_message": (13, 13, 13),
 }
 
 
 class Render():
-    def __init__(self, screen_size, fps=45):
+    def __init__(self, screen_size, fps):
         self.screen_size = screen_size
         self.fps = fps
+        self.debug_message = None
         successes, failures = pygame.init()
         print("{0} successes and {1} failures".format(successes, failures))
         self.screen = pygame.display.set_mode(screen_size)
         self.clock = pygame.time.Clock()
         self.last_debug_info_printed = time.monotonic()
+        self.font = pygame.font.SysFont(None, 24)
 
         pygame.display.set_caption("PixelBattle")
 
@@ -58,7 +61,12 @@ class Render():
         self.screen.fill(_PALLET["background"])
         self._draw_pixels(world)
 
-        self._show_debug_info(world)
+        self._log_debug_info(world)
+        if self.debug_message is not None:
+            img = self.font.render(self.debug_message, True, _PALLET["debug_message"])
+            rect = img.get_rect()
+            self.screen.blit(img, (20, 20))
+
         pygame.display.flip()
 
     def _draw_pixels(self, world):
@@ -94,7 +102,7 @@ class Render():
                 return action
         return Action.IDLE
 
-    def _show_debug_info(self, world: World):
+    def _log_debug_info(self, world: World):
         if self.last_debug_info_printed > time.monotonic() - 1:
             return
         print("Iteration: {i}, FPS: {fps:.0f}".format(
